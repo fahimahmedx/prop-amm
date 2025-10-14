@@ -31,30 +31,30 @@ contract PropAMM is Ownable, ReentrancyGuard {
         IERC20 tokenY;
         uint256 reserveX;
         uint256 reserveY;
-        uint256 targetX;            // Target amount of X for the curve
-        uint8 xRetainDecimals;      // Decimals to retain for X price normalization
-        uint8 yRetainDecimals;      // Decimals to retain for Y price normalization
-        bool targetYBasedLock;      // Emergency lock flag
-        uint256 targetYReference;   // Reference value for lock mechanism
-        bool exists;                // Whether this pair exists
+        uint256 targetX; // Target amount of X for the curve
+        uint8 xRetainDecimals; // Decimals to retain for X price normalization
+        uint8 yRetainDecimals; // Decimals to retain for Y price normalization
+        bool targetYBasedLock; // Emergency lock flag
+        uint256 targetYReference; // Reference value for lock mechanism
+        bool exists; // Whether this pair exists
     }
 
     struct PairParameters {
-        uint256 concentration;      // Concentration parameter for the curve
-        uint256 multX;              // Price multiplier for token X
-        uint256 multY;              // Price multiplier for token Y
+        uint256 concentration; // Concentration parameter for the curve
+        uint256 multX; // Price multiplier for token X
+        uint256 multY; // Price multiplier for token Y
     }
 
     // ============ State Variables ============
 
     address public marketMaker;
     IGlobalStorage public immutable globalStorage;
-    
+
     mapping(bytes32 => TradingPair) public pairs;
     bytes32[] public pairIds;
 
     // ============ Constants for GlobalStorage Keys ============
-    
+
     // Key prefixes for different parameters in GlobalStorage
     bytes32 private constant CONCENTRATION_PREFIX = keccak256("CONCENTRATION");
     bytes32 private constant MULT_X_PREFIX = keccak256("MULT_X");
@@ -62,25 +62,12 @@ contract PropAMM is Ownable, ReentrancyGuard {
 
     // ============ Events ============
 
-    event PairCreated(
-        bytes32 indexed pairId,
-        address indexed tokenX,
-        address indexed tokenY,
-        uint256 concentration
-    );
-    
-    event Deposited(
-        bytes32 indexed pairId,
-        uint256 amountX,
-        uint256 amountY
-    );
-    
-    event Withdrawn(
-        bytes32 indexed pairId,
-        uint256 amountX,
-        uint256 amountY
-    );
-    
+    event PairCreated(bytes32 indexed pairId, address indexed tokenX, address indexed tokenY, uint256 concentration);
+
+    event Deposited(bytes32 indexed pairId, uint256 amountX, uint256 amountY);
+
+    event Withdrawn(bytes32 indexed pairId, uint256 amountX, uint256 amountY);
+
     event Swapped(
         bytes32 indexed pairId,
         address indexed trader,
@@ -89,14 +76,9 @@ contract PropAMM is Ownable, ReentrancyGuard {
         uint256 amountIn,
         uint256 amountOut
     );
-    
-    event ParametersUpdated(
-        bytes32 indexed pairId,
-        uint256 concentration,
-        uint256 multX,
-        uint256 multY
-    );
-    
+
+    event ParametersUpdated(bytes32 indexed pairId, uint256 concentration, uint256 multX, uint256 multY);
+
     event PairUnlocked(bytes32 indexed pairId);
 
     // ============ Errors ============
@@ -126,10 +108,7 @@ contract PropAMM is Ownable, ReentrancyGuard {
 
     // ============ Constructor ============
 
-    constructor(
-        address _marketMaker,
-        address _globalStorage
-    ) Ownable(msg.sender) {
+    constructor(address _marketMaker, address _globalStorage) Ownable(msg.sender) {
         marketMaker = _marketMaker;
         globalStorage = IGlobalStorage(_globalStorage);
     }
@@ -152,7 +131,7 @@ contract PropAMM is Ownable, ReentrancyGuard {
         uint8 yRetainDecimals
     ) external onlyMarketMaker returns (bytes32) {
         bytes32 pairId = keccak256(abi.encodePacked(tokenX, tokenY));
-        
+
         if (pairs[pairId].exists) revert PairAlreadyExists();
         if (initialConcentration < 1 || initialConcentration >= 2000) revert InvalidConcentration();
 
@@ -183,7 +162,7 @@ contract PropAMM is Ownable, ReentrancyGuard {
             pairId,
             initialConcentration,
             0, // multX initialized to 0
-            0  // multY initialized to 0
+            0 // multY initialized to 0
         );
 
         emit PairCreated(pairId, tokenX, tokenY, initialConcentration);
@@ -198,29 +177,29 @@ contract PropAMM is Ownable, ReentrancyGuard {
      * @param multX New X multiplier
      * @param multY New Y multiplier
      */
-    function updateParameters(
-        bytes32 pairId,
-        uint256 concentration,
-        uint256 multX,
-        uint256 multY
-    ) external onlyMarketMaker pairExists(pairId) {
+    function updateParameters(bytes32 pairId, uint256 concentration, uint256 multX, uint256 multY)
+        external
+        onlyMarketMaker
+        pairExists(pairId)
+    {
         if (concentration < 1 || concentration >= 2000) {
             revert InvalidConcentration();
         }
 
         _updateParametersInGlobalStorage(pairId, concentration, multX, multY);
-        
+
         emit ParametersUpdated(pairId, concentration, multX, multY);
     }
 
     /**
      * @notice Deposit liquidity into a pair
      */
-    function deposit(
-        bytes32 pairId,
-        uint256 amountX,
-        uint256 amountY
-    ) external onlyMarketMaker pairExists(pairId) nonReentrant {
+    function deposit(bytes32 pairId, uint256 amountX, uint256 amountY)
+        external
+        onlyMarketMaker
+        pairExists(pairId)
+        nonReentrant
+    {
         TradingPair storage pair = pairs[pairId];
 
         if (amountX > 0) {
@@ -240,11 +219,12 @@ contract PropAMM is Ownable, ReentrancyGuard {
     /**
      * @notice Withdraw liquidity from a pair
      */
-    function withdraw(
-        bytes32 pairId,
-        uint256 amountX,
-        uint256 amountY
-    ) external onlyMarketMaker pairExists(pairId) nonReentrant {
+    function withdraw(bytes32 pairId, uint256 amountX, uint256 amountY)
+        external
+        onlyMarketMaker
+        pairExists(pairId)
+        nonReentrant
+    {
         TradingPair storage pair = pairs[pairId];
 
         if (amountX > pair.reserveX || amountY > pair.reserveY) {
@@ -283,11 +263,12 @@ contract PropAMM is Ownable, ReentrancyGuard {
      * @param amountXIn Amount of token X to swap
      * @param minAmountYOut Minimum amount of token Y expected (slippage protection)
      */
-    function swapXtoY(
-        bytes32 pairId,
-        uint256 amountXIn,
-        uint256 minAmountYOut
-    ) external pairExists(pairId) nonReentrant returns (uint256 amountYOut) {
+    function swapXtoY(bytes32 pairId, uint256 amountXIn, uint256 minAmountYOut)
+        external
+        pairExists(pairId)
+        nonReentrant
+        returns (uint256 amountYOut)
+    {
         TradingPair storage pair = pairs[pairId];
 
         // Read latest parameters from GlobalStorage
@@ -298,7 +279,7 @@ contract PropAMM is Ownable, ReentrancyGuard {
 
         // Get quote using GlobalStorage parameters
         uint256 amountOut = _quoteXtoY(pairId, amountXIn, params);
-        
+
         if (amountOut < minAmountYOut) revert SlippageExceeded();
         if (amountOut >= pair.reserveY) revert InsufficientLiquidity();
 
@@ -310,7 +291,7 @@ contract PropAMM is Ownable, ReentrancyGuard {
         pair.tokenY.safeTransfer(msg.sender, amountOut);
 
         emit Swapped(pairId, msg.sender, address(pair.tokenX), address(pair.tokenY), amountXIn, amountOut);
-        
+
         return amountOut;
     }
 
@@ -321,11 +302,12 @@ contract PropAMM is Ownable, ReentrancyGuard {
      * @param amountYIn Amount of token Y to swap
      * @param minAmountXOut Minimum amount of token X expected (slippage protection)
      */
-    function swapYtoX(
-        bytes32 pairId,
-        uint256 amountYIn,
-        uint256 minAmountXOut
-    ) external pairExists(pairId) nonReentrant returns (uint256 amountXOut) {
+    function swapYtoX(bytes32 pairId, uint256 amountYIn, uint256 minAmountXOut)
+        external
+        pairExists(pairId)
+        nonReentrant
+        returns (uint256 amountXOut)
+    {
         TradingPair storage pair = pairs[pairId];
 
         // Read latest parameters from GlobalStorage
@@ -336,7 +318,7 @@ contract PropAMM is Ownable, ReentrancyGuard {
 
         // Get quote using GlobalStorage parameters
         uint256 amountOut = _quoteYtoX(pairId, amountYIn, params);
-        
+
         if (amountOut < minAmountXOut) revert SlippageExceeded();
         if (amountOut >= pair.reserveX) revert InsufficientLiquidity();
 
@@ -348,7 +330,7 @@ contract PropAMM is Ownable, ReentrancyGuard {
         pair.tokenX.safeTransfer(msg.sender, amountOut);
 
         emit Swapped(pairId, msg.sender, address(pair.tokenY), address(pair.tokenX), amountYIn, amountOut);
-        
+
         return amountOut;
     }
 
@@ -357,10 +339,12 @@ contract PropAMM is Ownable, ReentrancyGuard {
     /**
      * @notice Get quote for swapping X to Y using current GlobalStorage parameters
      */
-    function quoteXtoY(
-        bytes32 pairId,
-        uint256 amountXIn
-    ) external view pairExists(pairId) returns (uint256 amountOut) {
+    function quoteXtoY(bytes32 pairId, uint256 amountXIn)
+        external
+        view
+        pairExists(pairId)
+        returns (uint256 amountOut)
+    {
         PairParameters memory params = _readParametersFromGlobalStorage(pairId);
         return _quoteXtoY(pairId, amountXIn, params);
     }
@@ -368,10 +352,12 @@ contract PropAMM is Ownable, ReentrancyGuard {
     /**
      * @notice Get quote for swapping Y to X using current GlobalStorage parameters
      */
-    function quoteYtoX(
-        bytes32 pairId,
-        uint256 amountYIn
-    ) external view pairExists(pairId) returns (uint256 amountOut) {
+    function quoteYtoX(bytes32 pairId, uint256 amountYIn)
+        external
+        view
+        pairExists(pairId)
+        returns (uint256 amountOut)
+    {
         PairParameters memory params = _readParametersFromGlobalStorage(pairId);
         return _quoteYtoX(pairId, amountYIn, params);
     }
@@ -390,7 +376,7 @@ contract PropAMM is Ownable, ReentrancyGuard {
         // Read one parameter with timestamp (they all update together)
         bytes32 key = _getStorageKey(pairId, CONCENTRATION_PREFIX);
         (, blockTimestamp, blockNumber) = globalStorage.getWithTimestamp(address(this), key);
-        
+
         params = _readParametersFromGlobalStorage(pairId);
         return (params, blockTimestamp, blockNumber);
     }
@@ -421,25 +407,12 @@ contract PropAMM is Ownable, ReentrancyGuard {
     /**
      * @notice Read parameters from GlobalStorage
      */
-    function _readParametersFromGlobalStorage(bytes32 pairId)
-        internal
-        view
-        returns (PairParameters memory params)
-    {
-        params.concentration = uint256(globalStorage.get(
-            address(this),
-            _getStorageKey(pairId, CONCENTRATION_PREFIX)
-        ));
-        
-        params.multX = uint256(globalStorage.get(
-            address(this),
-            _getStorageKey(pairId, MULT_X_PREFIX)
-        ));
-        
-        params.multY = uint256(globalStorage.get(
-            address(this),
-            _getStorageKey(pairId, MULT_Y_PREFIX)
-        ));
+    function _readParametersFromGlobalStorage(bytes32 pairId) internal view returns (PairParameters memory params) {
+        params.concentration = uint256(globalStorage.get(address(this), _getStorageKey(pairId, CONCENTRATION_PREFIX)));
+
+        params.multX = uint256(globalStorage.get(address(this), _getStorageKey(pairId, MULT_X_PREFIX)));
+
+        params.multY = uint256(globalStorage.get(address(this), _getStorageKey(pairId, MULT_Y_PREFIX)));
 
         return params;
     }
@@ -447,12 +420,9 @@ contract PropAMM is Ownable, ReentrancyGuard {
     /**
      * @notice Update parameters in GlobalStorage atomically
      */
-    function _updateParametersInGlobalStorage(
-        bytes32 pairId,
-        uint256 concentration,
-        uint256 multX,
-        uint256 multY
-    ) internal {
+    function _updateParametersInGlobalStorage(bytes32 pairId, uint256 concentration, uint256 multX, uint256 multY)
+        internal
+    {
         bytes32[] memory keys = new bytes32[](3);
         bytes32[] memory values = new bytes32[](3);
 
@@ -478,36 +448,36 @@ contract PropAMM is Ownable, ReentrancyGuard {
     /**
      * @notice Calculate quote for X to Y swap
      */
-    function _quoteXtoY(
-        bytes32 pairId,
-        uint256 amountXIn,
-        PairParameters memory params
-    ) internal view returns (uint256 amountOut) {
+    function _quoteXtoY(bytes32 pairId, uint256 amountXIn, PairParameters memory params)
+        internal
+        view
+        returns (uint256 amountOut)
+    {
         TradingPair storage pair = pairs[pairId];
 
         uint256 v0 = pair.targetX * params.concentration;
         uint256 K = (v0 * v0 * params.multX) / params.multY;
-        
+
         uint256 base = v0 + pair.reserveX - pair.targetX;
-        
+
         amountOut = K / base - K / (base + amountXIn);
     }
 
     /**
      * @notice Calculate quote for Y to X swap
      */
-    function _quoteYtoX(
-        bytes32 pairId,
-        uint256 amountYIn,
-        PairParameters memory params
-    ) internal view returns (uint256 amountOut) {
+    function _quoteYtoX(bytes32 pairId, uint256 amountYIn, PairParameters memory params)
+        internal
+        view
+        returns (uint256 amountOut)
+    {
         TradingPair storage pair = pairs[pairId];
 
         uint256 v0 = pair.targetX * params.concentration;
         uint256 K = (v0 * v0 * params.multX) / params.multY;
-        
+
         uint256 base = v0 + pair.reserveX - pair.targetX;
-        
+
         amountOut = base - K / (K / base + amountYIn);
     }
 
@@ -516,7 +486,7 @@ contract PropAMM is Ownable, ReentrancyGuard {
      */
     function _isTargetYLocked(bytes32 pairId, PairParameters memory params) internal returns (bool) {
         TradingPair storage pair = pairs[pairId];
-        
+
         uint256 targetY = _getTargetY(pairId, params);
         uint256 maxRef = targetY > pair.targetYReference ? targetY : pair.targetYReference;
         pair.targetYReference = maxRef;
@@ -534,18 +504,19 @@ contract PropAMM is Ownable, ReentrancyGuard {
      */
     function _getTargetY(bytes32 pairId, PairParameters memory params) internal view returns (uint256) {
         TradingPair storage pair = pairs[pairId];
-        
-        return (pair.reserveX * params.multX + pair.reserveY * params.multY - pair.targetX * params.multX) / params.multY;
+
+        return
+            (pair.reserveX * params.multX + pair.reserveY * params.multY - pair.targetX * params.multX) / params.multY;
     }
 
     /**
      * @notice Normalize price to target decimals
      */
-    function _normalizePrice(
-        uint256 price,
-        uint8 priceDecimals,
-        uint8 targetDecimals
-    ) internal pure returns (uint256) {
+    function _normalizePrice(uint256 price, uint8 priceDecimals, uint8 targetDecimals)
+        internal
+        pure
+        returns (uint256)
+    {
         if (priceDecimals >= targetDecimals) {
             return price / (10 ** (priceDecimals - targetDecimals));
         } else {
