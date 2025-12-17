@@ -24,41 +24,21 @@ contract MockERC20 is ERC20Burnable {
 
 // Mock GlobalStorage for testing
 contract MockGlobalStorage is IGlobalStorage {
-    struct StorageValue {
-        bytes32 value;
-        uint64 blockTimestamp;
-        uint64 blockNumber;
-    }
-
-    mapping(address => mapping(bytes32 => StorageValue)) private storage_;
+    mapping(address => mapping(bytes32 => bytes32)) private storage_;
 
     function set(bytes32 key, bytes32 value) external {
-        storage_[msg.sender][key] =
-            StorageValue({value: value, blockTimestamp: uint64(block.timestamp), blockNumber: uint64(block.number)});
+        storage_[msg.sender][key] = value;
     }
 
     function setBatch(bytes32[] calldata keys, bytes32[] calldata values) external {
         require(keys.length == values.length, "Length mismatch");
         for (uint256 i = 0; i < keys.length; i++) {
-            storage_[msg.sender][keys[i]] = StorageValue({
-                value: values[i],
-                blockTimestamp: uint64(block.timestamp),
-                blockNumber: uint64(block.number)
-            });
+            storage_[msg.sender][keys[i]] = values[i];
         }
     }
 
     function get(address owner, bytes32 key) external view returns (bytes32 value) {
-        return storage_[owner][key].value;
-    }
-
-    function getWithTimestamp(address owner, bytes32 key)
-        external
-        view
-        returns (bytes32 value, uint64 blockTimestamp, uint64 blockNumber)
-    {
-        StorageValue memory sv = storage_[owner][key];
-        return (sv.value, sv.blockTimestamp, sv.blockNumber);
+        return storage_[owner][key];
     }
 }
 
@@ -157,7 +137,10 @@ contract PropAMMTest is Test {
         uint256 multX = 4000; // Price ratio numerator
         uint256 multY = 10 ** 12; // Price ratio denominator (gives 4000/10^12 = 4*10^-9)
 
-        amm.updateParameters(wethUsdcPairId, concentration, multX, multY);
+        // Update parameters via GlobalStorage directly (marketMaker's namespace)
+        bytes32[] memory keys = amm.getParameterKeys(wethUsdcPairId);
+        bytes32[] memory values = amm.encodeParameters(concentration, multX, multY);
+        globalStorage.setBatch(keys, values);
 
         vm.stopPrank();
 
@@ -229,7 +212,11 @@ contract PropAMMTest is Test {
         uint256 concentration = 1;
         uint256 multX = 4000;
         uint256 multY = 10 ** 12;
-        amm.updateParameters(wethUsdcPairId, concentration, multX, multY);
+        
+        // Update parameters via GlobalStorage directly (marketMaker's namespace)
+        bytes32[] memory keys = amm.getParameterKeys(wethUsdcPairId);
+        bytes32[] memory values = amm.encodeParameters(concentration, multX, multY);
+        globalStorage.setBatch(keys, values);
 
         vm.stopPrank();
 
@@ -288,7 +275,11 @@ contract PropAMMTest is Test {
         uint256 concentration = 100;
         uint256 multX = 4000 * 10 ** 6;
         uint256 multY = 10 ** 18;
-        amm.updateParameters(wethUsdcPairId, concentration, multX, multY);
+        
+        // Update parameters via GlobalStorage directly (marketMaker's namespace)
+        bytes32[] memory keys = amm.getParameterKeys(wethUsdcPairId);
+        bytes32[] memory values = amm.encodeParameters(concentration, multX, multY);
+        globalStorage.setBatch(keys, values);
 
         vm.stopPrank();
 
@@ -316,17 +307,17 @@ contract PropAMMTest is Test {
         uint256 newMultX = 3500 * 10 ** 6;
         uint256 newMultY = 10 ** 18;
 
-        amm.updateParameters(wethUsdcPairId, newConcentration, newMultX, newMultY);
+        // Update parameters via GlobalStorage directly (marketMaker's namespace)
+        bytes32[] memory keys = amm.getParameterKeys(wethUsdcPairId);
+        bytes32[] memory values = amm.encodeParameters(newConcentration, newMultX, newMultY);
+        globalStorage.setBatch(keys, values);
 
         // Verify parameters updated in global storage
-        (PropAMM.PairParameters memory params, uint64 timestamp, uint64 blockNum) =
-            amm.getParametersWithTimestamp(wethUsdcPairId);
+        PropAMM.PairParameters memory params = amm.getParameters(wethUsdcPairId);
 
         assertEq(params.concentration, newConcentration);
         assertEq(params.multX, newMultX);
         assertEq(params.multY, newMultY);
-        assertEq(timestamp, block.timestamp);
-        assertEq(blockNum, block.number);
 
         vm.stopPrank();
     }

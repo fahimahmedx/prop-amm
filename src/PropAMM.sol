@@ -10,10 +10,6 @@ interface IGlobalStorage {
     function set(bytes32 key, bytes32 value) external;
     function setBatch(bytes32[] calldata keys, bytes32[] calldata values) external;
     function get(address owner, bytes32 key) external view returns (bytes32 value);
-    function getWithTimestamp(address owner, bytes32 key)
-        external
-        view
-        returns (bytes32 value, uint64 blockTimestamp, uint64 blockNumber);
 }
 
 /**
@@ -92,7 +88,6 @@ contract PropAMM is Ownable, ReentrancyGuard {
     error PairLocked();
     error SlippageExceeded();
     error InvalidDecimalConfiguration();
-    error StaleParameters();
 
     // ============ Modifiers ============
 
@@ -157,38 +152,24 @@ contract PropAMM is Ownable, ReentrancyGuard {
 
         pairIds.push(pairId);
 
-        // Initialize parameters in GlobalStorage
-        _updateParametersInGlobalStorage(
-            pairId,
-            initialConcentration,
-            0, // multX initialized to 0
-            0 // multY initialized to 0
-        );
+        // Initialize parameters in GlobalStorage (marketMaker's namespace)
+        // Market maker must call this function, so msg.sender = marketMaker
+        bytes32[] memory keys = new bytes32[](3);
+        bytes32[] memory values = new bytes32[](3);
+
+        keys[0] = _getStorageKey(pairId, CONCENTRATION_PREFIX);
+        values[0] = bytes32(initialConcentration);
+
+        keys[1] = _getStorageKey(pairId, MULT_X_PREFIX);
+        values[1] = bytes32(0); // multX initialized to 0
+
+        keys[2] = _getStorageKey(pairId, MULT_Y_PREFIX);
+        values[2] = bytes32(0); // multY initialized to 0
+
+        globalStorage.setBatch(keys, values);
 
         emit PairCreated(pairId, tokenX, tokenY, initialConcentration);
         return pairId;
-    }
-
-    /**
-     * @notice Update all pricing parameters in GlobalStorage atomically
-     * @dev This should be called by market maker. Updates are placed at top of block.
-     * @param pairId The pair identifier
-     * @param concentration New concentration parameter
-     * @param multX New X multiplier
-     * @param multY New Y multiplier
-     */
-    function updateParameters(bytes32 pairId, uint256 concentration, uint256 multX, uint256 multY)
-        external
-        onlyMarketMaker
-        pairExists(pairId)
-    {
-        if (concentration < 1 || concentration >= 2000) {
-            revert InvalidConcentration();
-        }
-
-        _updateParametersInGlobalStorage(pairId, concentration, multX, multY);
-
-        emit ParametersUpdated(pairId, concentration, multX, multY);
     }
 
     /**
@@ -363,22 +344,11 @@ contract PropAMM is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @notice Get current parameters from GlobalStorage with metadata
+     * @notice Get current parameters from GlobalStorage
      * @return params The current pricing parameters
-     * @return blockTimestamp When parameters were last updated
-     * @return blockNumber Block number of last update
      */
-    function getParametersWithTimestamp(bytes32 pairId)
-        external
-        view
-        returns (PairParameters memory params, uint64 blockTimestamp, uint64 blockNumber)
-    {
-        // Read one parameter with timestamp (they all update together)
-        bytes32 key = _getStorageKey(pairId, CONCENTRATION_PREFIX);
-        (, blockTimestamp, blockNumber) = globalStorage.getWithTimestamp(address(this), key);
-
-        params = _readParametersFromGlobalStorage(pairId);
-        return (params, blockTimestamp, blockNumber);
+    function getParameters(bytes32 pairId) external view returns (PairParameters memory params) {
+        return _readParametersFromGlobalStorage(pairId);
     }
 
     /**
@@ -402,40 +372,55 @@ contract PropAMM is Ownable, ReentrancyGuard {
         return keccak256(abi.encodePacked(tokenX, tokenY));
     }
 
+    /**
+     * @notice Get the storage keys for a pair's parameters
+     * @dev Market maker uses these keys to call GlobalStorage.setBatch() directly for ToB priority
+     * @param pairId The pair identifier
+     * @return keys Array of storage keys [concentration, multX, multY]
+     */
+    function getParameterKeys(bytes32 pairId) external pure returns (bytes32[] memory keys) {
+        keys = new bytes32[](3);
+        keys[0] = _getStorageKey(pairId, CONCENTRATION_PREFIX);
+        keys[1] = _getStorageKey(pairId, MULT_X_PREFIX);
+        keys[2] = _getStorageKey(pairId, MULT_Y_PREFIX);
+    }
+
+    /**
+     * @notice Encode parameters into bytes32 values for GlobalStorage
+     * @dev Market maker uses these values to call GlobalStorage.setBatch() directly for ToB priority
+     * @param concentration Concentration parameter (1-2000)
+     * @param multX Price multiplier for token X
+     * @param multY Price multiplier for token Y
+     * @return values Array of encoded values [concentration, multX, multY]
+     */
+    function encodeParameters(uint256 concentration, uint256 multX, uint256 multY)
+        external
+        pure
+        returns (bytes32[] memory values)
+    {
+        if (concentration < 1 || concentration >= 2000) {
+            revert InvalidConcentration();
+        }
+        values = new bytes32[](3);
+        values[0] = bytes32(concentration);
+        values[1] = bytes32(multX);
+        values[2] = bytes32(multY);
+    }
+
     // ============ Internal Functions ============
 
     /**
      * @notice Read parameters from GlobalStorage
+     * @dev Reads from marketMaker's namespace (set via direct GlobalStorage.setBatch() calls)
      */
     function _readParametersFromGlobalStorage(bytes32 pairId) internal view returns (PairParameters memory params) {
-        params.concentration = uint256(globalStorage.get(address(this), _getStorageKey(pairId, CONCENTRATION_PREFIX)));
+        params.concentration = uint256(globalStorage.get(marketMaker, _getStorageKey(pairId, CONCENTRATION_PREFIX)));
 
-        params.multX = uint256(globalStorage.get(address(this), _getStorageKey(pairId, MULT_X_PREFIX)));
+        params.multX = uint256(globalStorage.get(marketMaker, _getStorageKey(pairId, MULT_X_PREFIX)));
 
-        params.multY = uint256(globalStorage.get(address(this), _getStorageKey(pairId, MULT_Y_PREFIX)));
+        params.multY = uint256(globalStorage.get(marketMaker, _getStorageKey(pairId, MULT_Y_PREFIX)));
 
         return params;
-    }
-
-    /**
-     * @notice Update parameters in GlobalStorage atomically
-     */
-    function _updateParametersInGlobalStorage(bytes32 pairId, uint256 concentration, uint256 multX, uint256 multY)
-        internal
-    {
-        bytes32[] memory keys = new bytes32[](3);
-        bytes32[] memory values = new bytes32[](3);
-
-        keys[0] = _getStorageKey(pairId, CONCENTRATION_PREFIX);
-        values[0] = bytes32(concentration);
-
-        keys[1] = _getStorageKey(pairId, MULT_X_PREFIX);
-        values[1] = bytes32(multX);
-
-        keys[2] = _getStorageKey(pairId, MULT_Y_PREFIX);
-        values[2] = bytes32(multY);
-
-        globalStorage.setBatch(keys, values);
     }
 
     /**
