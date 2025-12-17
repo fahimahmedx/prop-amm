@@ -84,7 +84,7 @@ run_in_new_terminal "token-deployer" "$TOKEN_DEPLOYER_DIR" \
 
 sleep 10
 
-echo "7) Deploying Prop AMM Smart Contract..."
+echo "6) Deploying Prop AMM Smart Contract..."
 run_in_new_terminal "prop-amm" "$PROP_AMM_DIR" \
   forge script script/PropAMM.s.sol:PropAMMScript \
     --rpc-url http://localhost:8547 \
