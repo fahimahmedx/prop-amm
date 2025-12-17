@@ -5,7 +5,7 @@ from eth_account import Account
 
 # Config
 RPC_URL = os.getenv("RPC_URL", "http://localhost:8547")
-PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+PRIVATE_KEY = os.getenv("PRIVATE_KEY")
 
 PROP_AMM_ADDRESS = "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9"
 GLOBAL_STORAGE_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
